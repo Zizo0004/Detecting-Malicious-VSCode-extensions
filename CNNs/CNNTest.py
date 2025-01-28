@@ -29,3 +29,9 @@ train_loader = torch.utils.data.DataLoader(dataset=train_dataset,batch_sampler=b
 test_loader = torch.utils.data.DataLoader(dataset=test_dataset,batch_sampler=batch_size, shuffle=False)
 
 classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+
+class ConvNet(nn.Module):
+    def __init__(self):
+        pass
+    def forward(self, x):
+        pass
