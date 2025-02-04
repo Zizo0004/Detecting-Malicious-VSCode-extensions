@@ -1,37 +1,35 @@
 import torch
 import torch.nn as nn
-import torchvision
-import torchvision.transforms as transforms
-import matplotlib.pyplot as plt
-import numpy as np
+from torchvision import models, transforms
+from PIL import Image
 
-# Uses NVDIA GPU, else uses cpu - remind me to add amd gpu support
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-# Hyper-parameters - input_size = the number of features in the input data. hidden_size = number of neurons in the hidden layer. num_classes = number of classes you want to predict.
-input_size = 784
-hidden_size = 100
-num_classes = 10
-num_epochs = 2
-
-# not sure what these 2 parameters are below
-learning_rate = 0.001
-batch_size = 100
-
-# MNIST 
-train_dataset = torchvision.datasets.CIFAR10(root='./data', train=True,
-        transform=transforms.ToTensor(), download=True)
-test_dataset = torchvision.datasets.CIFAR10(root='./data', train=False,
-        transform=transforms.ToTensor())
+preprocess = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    )
+])
+originalImage = preprocess(Image.open(r"C:/Users/Ziyad/Downloads/dracula.png").convert('RGB')).unsqueeze(0)
+copycatImage = preprocess(Image.open(r"C:/Users/Ziyad/Downloads/omnidracula.png").convert('RGB')).unsqueeze(0)
 
 
-train_loader = torch.utils.data.DataLoader(dataset=train_dataset,batch_sampler=batch_size, shuffle=True)
-test_loader = torch.utils.data.DataLoader(dataset=test_dataset,batch_sampler=batch_size, shuffle=False)
+model = models.resnet50(pretrained=True)
+model = nn.Sequential(*list(model.children())[:-1])
+model.eval()
 
-classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+with torch.no_grad():
+    embedding1 = model(originalImage)  
+    embedding2 = model(copycatImage)  
 
-class ConvNet(nn.Module):
-    def __init__(self):
-        pass
-    def forward(self, x):
-        pass
+print(embedding1)
+embedding1 = embedding1.view(embedding1.size(0), -1)
+embedding2 = embedding2.view(embedding2.size(0), -1)
+print(embedding1)
+cosine = nn.CosineSimilarity(dim=1, eps=1e-6)
+similarity = cosine(embedding1, embedding2) 
+
+similarity_score = similarity.item()
+print(f"Cosine Similarity between the two icons: {similarity_score:.4f}")

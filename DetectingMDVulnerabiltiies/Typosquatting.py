@@ -1,0 +1,1 @@
+# Using Damerau–Levenshtein algorithm for typosquatting detection
