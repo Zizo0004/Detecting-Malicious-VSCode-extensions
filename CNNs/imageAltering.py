@@ -4,6 +4,7 @@ import random
 dracula = Image.open(r"C:/Users/Ziyad/Downloads/draculaCopy.png")
 pixels = dracula.load()
 
+
 for i in range(0,100):
     x = random.randint(0,200)
     y = random.randint(0,200)

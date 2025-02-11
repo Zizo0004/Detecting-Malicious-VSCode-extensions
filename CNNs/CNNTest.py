@@ -17,7 +17,7 @@ copycatImage = preprocess(Image.open(r"C:/Users/Ziyad/Downloads/omnidracula.png"
 
 
 model = models.resnet50(pretrained=True)
-model = nn.Sequential(*list(model.children())[:-1])
+model = nn.Sequential(*list(model.children())[:-1]) # remove the final layer because we just want the features extracted from previous layers
 model.eval()
 
 with torch.no_grad():
