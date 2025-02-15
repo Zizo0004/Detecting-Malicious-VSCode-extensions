@@ -1,0 +1,1 @@
+# Already tested and implemented the scrapping process on jupyter notebook, copy paste it here. 67k entries were scrapped

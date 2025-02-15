@@ -1,0 +1,6 @@
+- 1. Process scrapped data that I stored in juptrynotebook
+- 2. Fix Typosquatting Algo appoarch
+- 3. Analysis which tags are most and least popular and give a rating to each extension (minimize the computational cost of analysisng the meta data)
+- 4. Consine similairty between extension description
+- 5. Run entire program to ensure it works. Most likely would need to optimize as there are currently 67,000+ vscode extensions right now
+- 6. If all goes well, potentially start adding more features if requested by prof
