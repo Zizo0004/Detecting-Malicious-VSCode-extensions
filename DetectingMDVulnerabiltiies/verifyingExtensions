@@ -1,0 +1,189 @@
+# Do not run, it will take a really long time to run
+
+import pandas as pd
+import requests,time,os,threading,json
+from queue import Queue
+from concurrent.futures import ThreadPoolExecutor
+INPUT_FILE = 'vscodeDataSet.csv'
+OUTPUT_FILE = 'vscode_extensions_verified.csv'
+RESULTS_FILE = 'verification_results.json'
+NUM_THREADS = 25  
+BATCH_SIZE = 1000  
+MAX_RETRIES = 3
+
+# Shared data and locks
+results = {}
+results_lock = threading.Lock()
+counter_lock = threading.Lock()
+counters = {'processed': 0, 'found': 0, 'not_found': 0, 'error': 0}
+
+def load_results():
+    if os.path.exists(RESULTS_FILE):
+        with open(RESULTS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_results():
+    with results_lock:
+        with open(RESULTS_FILE, 'w') as f:
+            json.dump(results, f)
+        
+        if results:
+            verified_ids = [key for key, status in results.items() if status == 200]
+            found_df = df[df.apply(lambda row: f"{row['Publisher Name']}.{row['Extension Name']}" in verified_ids, axis=1)]
+            found_df.to_csv(OUTPUT_FILE, index=False)
+            print(f"Saved {len(found_df)} verified extensions to {OUTPUT_FILE}")
+
+def check_extension(extension_id, session, retry=0):
+    publisher, extension = extension_id.split('.')
+    url = f'https://marketplace.visualstudio.com/items?itemName={extension_id}'
+    
+    try:
+        response = session.get(url, timeout=5)
+        with results_lock:
+            results[extension_id] = response.status_code
+        
+        with counter_lock:
+            counters['processed'] += 1
+            if response.status_code == 200:
+                counters['found'] += 1
+            else:
+                counters['not_found'] += 1
+                
+        if response.status_code == 429 and retry < MAX_RETRIES:
+            time.sleep(5 * (retry + 1))  # Exponential backoff
+            return check_extension(extension_id, session, retry + 1)
+            
+        return response.status_code
+        
+    except Exception as e:
+        with counter_lock:
+            counters['processed'] += 1
+            counters['error'] += 1
+        
+        if retry < MAX_RETRIES:
+            time.sleep(2 * (retry + 1))
+            return check_extension(extension_id, session, retry + 1)
+            
+        with results_lock:
+            results[extension_id] = "error"
+        return "error"
+
+def process_batch(extension_ids):
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+    })
+    
+    for extension_id in extension_ids:
+        with results_lock:
+            if extension_id in results:
+                continue
+                
+        check_extension(extension_id, session)
+        
+        time.sleep(0.5)
+
+def process_in_parallel():
+    global df
+    try:
+        df = pd.read_csv(INPUT_FILE)
+        print(f"Loaded {INPUT_FILE} with {len(df)} extensions")
+    except FileNotFoundError:
+        print(f"Error: File {INPUT_FILE} not found")
+        return
+    
+    global results
+    results = load_results()
+    print(f"Loaded {len(results)} previously checked extensions")
+    
+    extension_ids = []
+    for _, row in df.iterrows():
+        extension_id = f"{row['Publisher Name']}.{row['Extension Name']}"
+        extension_ids.append(extension_id)
+    
+    # Calculate how many are left to check
+    unchecked = [eid for eid in extension_ids if eid not in results]
+    total = len(extension_ids)
+    to_check = len(unchecked)
+    print(f"Total extensions: {total}")
+    print(f"Already checked: {total - to_check}")
+    print(f"Remaining to check: {to_check}")
+    
+    if to_check == 0:
+        print("All extensions have been checked!")
+        save_results()
+        return
+    
+    print(f"Starting verification with {NUM_THREADS} threads...")
+    start_time = time.time()
+    last_save_time = start_time
+    last_save_count = 0
+    
+    batch_size = 50  # How many items each thread will process
+    all_batches = [unchecked[i:i+batch_size] for i in range(0, len(unchecked), batch_size)]
+    
+    with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+        # Submit all batches to the thread pool
+        futures = [executor.submit(process_batch, batch) for batch in all_batches]
+        
+        while any(not future.done() for future in futures):
+            with counter_lock:
+                current_processed = counters['processed']
+                current_found = counters['found']
+                current_not_found = counters['not_found']
+                current_error = counters['error']
+            
+            # Calculate stats
+            elapsed = time.time() - start_time
+            items_per_second = current_processed / elapsed if elapsed > 0 else 0
+            percent_done = (current_processed / to_check) * 100 if to_check > 0 else 100
+            
+            # Determine estimated time remaining
+            if items_per_second > 0:
+                remaining_items = to_check - current_processed
+                eta_seconds = remaining_items / items_per_second
+                eta_minutes = eta_seconds / 60
+                eta_hours = eta_minutes / 60
+                
+                if eta_hours >= 1:
+                    eta_str = f"{eta_hours:.1f} hours"
+                elif eta_minutes >= 1:
+                    eta_str = f"{eta_minutes:.1f} minutes"
+                else:
+                    eta_str = f"{eta_seconds:.1f} seconds"
+            else:
+                eta_str = "calculating..."
+            
+            # Print progress
+            print(f"\rProgress: {current_processed}/{to_check} ({percent_done:.1f}%) | "
+                  f"Found: {current_found} | Not Found: {current_not_found} | Errors: {current_error} | "
+                  f"Speed: {items_per_second:.2f} extensions/sec | ETA: {eta_str}", end="")
+            
+            # Save results periodically
+            if current_processed - last_save_count >= BATCH_SIZE or time.time() - last_save_time >= 300:  # Every 1000 items or 5 minutes
+                save_results()
+                last_save_count = current_processed
+                last_save_time = time.time()
+                print("\nSaved intermediate results.")
+            
+            time.sleep(2)  # Update progress every 2 seconds
+    
+    # Final save
+    save_results()
+    
+    # Final stats
+    total_time = time.time() - start_time
+    with counter_lock:
+        print(f"\n\nVerification complete!")
+        print(f"Total extensions checked: {counters['processed']}")
+        print(f"Found in marketplace: {counters['found']} ({(counters['found']/counters['processed'])*100:.1f}%)")
+        print(f"Not found: {counters['not_found']} ({(counters['not_found']/counters['processed'])*100:.1f}%)")
+        print(f"Errors: {counters['error']} ({(counters['error']/counters['processed'])*100:.1f}%)")
+        print(f"Total time: {total_time/60:.1f} minutes")
+        print(f"Average speed: {counters['processed']/total_time:.2f} extensions/second")
+        print(f"Results saved to {OUTPUT_FILE} and {RESULTS_FILE}")
+
+if __name__ == "__main__":
+    process_in_parallel() 
