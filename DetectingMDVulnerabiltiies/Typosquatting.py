@@ -19,6 +19,13 @@ def Dam_Levenstein(str1, str2):
     
     return d[len(str1)-1, len(str2)-1]
 
-print(Dam_Levenstein("hello", "hallo"))
-print(Dam_Levenstein("str", "tsq"))
-print(Dam_Levenstein("kitten", "sitting"))
+import pandas as pd
+import csv
+import time
+
+df = pd.read_csv('vscode_extensions_verified.csv')
+df = df.sort_index()
+
+for i in df.iloc[1:10].iterrows():
+        Dam_Levenstein(i[1]['Extension Name'], 'vscode-python')
+
